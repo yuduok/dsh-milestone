@@ -1,0 +1,25 @@
+# Dependencies (reinstall with `npm install`)
+node_modules/
+
+# AgentTeams runtime state (local coordination scratch, not project source)
+.agent-teams/
+
+# macOS
+.DS_Store
+
+# Editor / tooling
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# NOTE: lib/client.js is intentionally NOT ignored.
+# It is the built client bundle that `dsh web` actually serves
+# (package.json "exports" maps "./client" to it); without it the plugin
+# fails to activate with MissingClientBundleError. Rebuild with `npm run build`.
