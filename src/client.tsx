@@ -51,7 +51,7 @@ import {
     relativeTime,
     stripShift,
     windowTicks,
-    WINDOW_RADIUS,
+    emphasisOf,
     type TickModel,
     type TurnGeometry,
 } from './locator.ts';
@@ -398,7 +398,7 @@ function findAnchor(scrollport: HTMLElement, key: string): HTMLElement | null {
 /** Props of one ruler tick (a plain function component, memoized by turn state below). */
 interface TickProps {
     tick: TickModel;
-    /** Positions from the focus tick within the strip; drives size, fade, and blur. */
+    /** Positions from the focus tick within the strip; drives the emphasis tier. */
     distance: number;
     active: boolean;
     hovered: boolean;
@@ -414,13 +414,12 @@ function Tick({ tick, distance, active, hovered, onHover, onJump, t, now }: Tick
     const time = relativeTime(tick.time, now);
     const summary = tick.summary ?? null;
     return (
-        <li className="dms-tickWrap" data-distance={distance > WINDOW_RADIUS ? 'out' : undefined}>
+        <li className="dms-tickWrap">
             <button
                 type="button"
                 role="listitem"
                 className="dms-tick"
-                data-distance={distance}
-                data-active={active ? '1' : undefined}
+                data-emphasis={emphasisOf(distance)}
                 data-running={tick.status === 'running' ? '1' : undefined}
                 aria-label={format(t('tick.aria'), { n: tick.turn })}
                 aria-current={active ? 'true' : undefined}

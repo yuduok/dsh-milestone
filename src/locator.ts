@@ -94,23 +94,49 @@ export function computeActiveTurn(
 /** Dictionary key of one relative-time rendering. */
 export type RelativeTimeKey = 'time.now' | 'time.minutes' | 'time.hours' | 'time.days' | 'time.date';
 
-/** Milestones that read as "shown" around the focus: this many on each side. */
-export const WINDOW_RADIUS = 2;
-/** Ticks that stay legible in the strip (the "5 or fewer" budget). */
-export const WINDOW_TICKS = WINDOW_RADIUS * 2 + 1;
 /**
- * Extra ticks rendered beyond {@link WINDOW_RADIUS} on each side. They sit
- * outside the readable band, faded and blurred by CSS, purely so the strip
- * has material to move THROUGH while sliding — without them a one-turn step
- * would have to unmount/remount ticks instead of gliding.
- *
- * 2 is the useful minimum: one step of travel needs a spare tick on each side,
- * and the second spare carries the fade-out so the band's edge is never a hard
- * cut. More overscan only adds invisible DOM (and lengthens the transform).
+ * Ticks on each side of the focus that READ as highlighted. The focus itself
+ * ({@link EMPHASIS_FOCUS}) is the strongest tier; this radius is the
+ * "slightly emphasized" neighbours around it; everything further out renders at
+ * the NORMAL level.
+ */
+export const WINDOW_RADIUS = 1;
+/** Visible ticks on each side of the focus (the viewport shows `2r + 1`). */
+export const VISIBLE_RADIUS = 4;
+/** Ticks the viewport shows at once. */
+export const VISIBLE_TICKS = VISIBLE_RADIUS * 2 + 1;
+/**
+ * Extra ticks rendered beyond the visible band on each side. They are what the
+ * strip travels THROUGH while sliding, so a step is a continuous glide instead
+ * of an unmount/remount swap; the viewport's edge softening hides them.
  */
 export const STRIP_OVERSCAN = 2;
 /** Total ticks rendered in the strip. */
-export const STRIP_TICKS = WINDOW_TICKS + STRIP_OVERSCAN * 2;
+export const STRIP_TICKS = VISIBLE_TICKS + STRIP_OVERSCAN * 2;
+/** Legacy alias kept for the visible-band width (the "5 or fewer" budget became
+ * a 9-tick band; the name survives because tests and README cite it). */
+export const WINDOW_TICKS = VISIBLE_TICKS;
+
+/** Emphasis tier of one tick, by its distance from the focus. */
+export const EMPHASIS_FOCUS = 0;
+/** Tier of the focus's immediate neighbours. */
+export const EMPHASIS_NEAR = 1;
+/** Tier of everything beyond the neighbours — normal, still fully legible. */
+export const EMPHASIS_NORMAL = 2;
+
+/**
+ * The emphasis tier for a tick `distance` steps from the focus. Pure so the CSS
+ * contract (a `data-emphasis` value) and its tests share one definition: the
+ * focus stands out, its neighbours are slightly emphasized, and nothing ever
+ * drops below "normal" — a de-emphasis must not read as a missing row.
+ * @param distance - absolute distance in ticks from the focus.
+ * @returns the tier: {@link EMPHASIS_FOCUS} | {@link EMPHASIS_NEAR} | {@link EMPHASIS_NORMAL}.
+ */
+export function emphasisOf(distance: number): number {
+    if (distance <= 0) return EMPHASIS_FOCUS;
+    if (distance <= WINDOW_RADIUS) return EMPHASIS_NEAR;
+    return EMPHASIS_NORMAL;
+}
 
 /**
  * The rail's sliding-strip model: a contiguous run of milestones plus the

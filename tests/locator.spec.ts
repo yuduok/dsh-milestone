@@ -9,14 +9,20 @@ import { describe, expect, it } from 'vitest';
 import {
     computeActiveTurn,
     deriveMilestones,
+    emphasisOf,
     focusIndexOf,
     relativeTime,
     stripShift,
     windowTicks,
+    EMPHASIS_FOCUS,
+    EMPHASIS_NEAR,
+    EMPHASIS_NORMAL,
     STRIP_TICKS,
     TICK_ADVANCE,
     TICK_HEIGHT,
     VIEWPORT_HEIGHT,
+    VISIBLE_RADIUS,
+    WINDOW_RADIUS,
     WINDOW_TICKS,
     type TickModel,
     type TurnGeometry,
@@ -150,6 +156,43 @@ describe('computeActiveTurn', () => {
     });
 });
 
+describe('emphasisOf', () => {
+    it('marks the focus tick as the strongest tier', () => {
+        expect(emphasisOf(0)).toBe(EMPHASIS_FOCUS);
+    });
+
+    it('marks the focus neighbours as the slightly-emphasized tier', () => {
+        expect(emphasisOf(1)).toBe(EMPHASIS_NEAR);
+        // Every distance inside the emphasis radius counts as a neighbour.
+        for (let d = 1; d <= WINDOW_RADIUS; d++) expect(emphasisOf(d)).toBe(EMPHASIS_NEAR);
+    });
+
+    it('leaves everything further out at the normal tier', () => {
+        for (const d of [WINDOW_RADIUS + 1, 3, 5, VISIBLE_RADIUS, STRIP_TICKS]) {
+            expect(emphasisOf(d)).toBe(EMPHASIS_NORMAL);
+        }
+    });
+
+    it('never reports a tier dimmer than normal, for any rendered distance', () => {
+        // A de-emphasis must not read as a missing row: every distance within the
+        // strip maps to one of the three defined tiers, and normal is the floor.
+        for (let d = 0; d < STRIP_TICKS; d++) {
+            expect([EMPHASIS_FOCUS, EMPHASIS_NEAR, EMPHASIS_NORMAL]).toContain(emphasisOf(d));
+            expect(emphasisOf(d)).toBeLessThanOrEqual(EMPHASIS_NORMAL);
+        }
+    });
+
+    it('is monotonic: emphasis never strengthens as distance grows', () => {
+        for (let d = 1; d < STRIP_TICKS; d++) {
+            expect(emphasisOf(d)).toBeGreaterThanOrEqual(emphasisOf(d - 1));
+        }
+    });
+
+    it('treats a negative distance as the focus (defensive)', () => {
+        expect(emphasisOf(-1)).toBe(EMPHASIS_FOCUS);
+    });
+});
+
 describe('stripShift', () => {
     /** Where the focus tick's center lands inside the viewport for one shift. */
     const focusCenterInViewport = (focusIndex: number): number =>
@@ -252,7 +295,7 @@ describe('windowTicks', () => {
 
     it('clamps at the conversation start, moving the focus toward the top edge', () => {
         const result = windowTicks(ticks(40), 1);
-        expect(turns(result)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        expect(turns(result)).toEqual(Array.from({ length: STRIP_TICKS }, (_, i) => i + 1));
         expect(result.focusIndex).toBe(0);
         expect(result.hasOlder).toBe(false);
         expect(result.hasNewer).toBe(true);
@@ -260,7 +303,9 @@ describe('windowTicks', () => {
 
     it('clamps at the conversation end, moving the focus toward the bottom edge', () => {
         const result = windowTicks(ticks(40), 40);
-        expect(turns(result)).toEqual([32, 33, 34, 35, 36, 37, 38, 39, 40]);
+        expect(turns(result)).toEqual(
+            Array.from({ length: STRIP_TICKS }, (_, i) => 40 - STRIP_TICKS + 1 + i),
+        );
         expect(result.focusIndex).toBe(STRIP_TICKS - 1);
         expect(result.hasOlder).toBe(true);
         expect(result.hasNewer).toBe(false);
