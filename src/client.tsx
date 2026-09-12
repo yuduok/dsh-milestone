@@ -11,9 +11,12 @@
  * from the conversation scrollport (`[data-conversation-scroll]`) at runtime,
  * which keeps it correct across sidebar collapse/expand and window resizes.
  *
- * Window: only the ACTIVE turn ± {@link WINDOW_RADIUS} neighbours render (5
- * ticks), sliding as the reader scrolls; edge chevrons mark hidden
- * milestones on either side.
+ * Window: the rail renders a fixed-size strip of milestones and translates it
+ * so the focus (the viewport's turn) sits on the center line. Only the focus ±
+ * {@link WINDOW_RADIUS} reads as legible; the overscan ticks beyond that band
+ * are faded and blurred by CSS (see dock.css.ts), so ~5 milestones show while
+ * the motion through them is one continuous glide rather than a swap. Edge
+ * chevrons mark milestones hidden beyond the strip.
  *
  * The live milestone data arrives through `useProjection('milestones')` (the
  * framework's fifth standard hook seat — no client-side folding); scroll
@@ -46,6 +49,7 @@ import {
     computeActiveTurn,
     deriveMilestones,
     relativeTime,
+    stripShift,
     windowTicks,
     WINDOW_RADIUS,
     type TickModel,
@@ -145,13 +149,9 @@ function firstAnchorKeyOf(snapshot: ConversationSnapshot, turn: number): string 
 }
 
 /**
- * The sliding window around the reading position: the active tick plus
- * {@link WINDOW_RADIUS} neighbours on each side, clamped at either end. With no
- * active turn yet the window opens on the last turns (a fresh session is pinned
- * at the bottom).
- *
- * The implementation is {@link windowTicks} in locator.ts (pure); this file
- * only renders its result.
+ * The sliding strip around the reading position. The implementation is
+ * {@link windowTicks} in locator.ts (pure) — it returns the strip plus the
+ * focus index, and this file only renders and translates that result.
  */
 
 /**
@@ -168,9 +168,10 @@ type MilestoneRulerProps = PropsRuntime<'conversation.session.header.actions'> &
 
 /**
  * The milestone ruler: a vertical rail hugging the left edge of the
- * conversation column. It shows only the active turn's neighborhood (5 ticks),
- * highlights the viewport's turn, opens a hover card per tick, and jumps to a
- * turn on click. Renders nothing while the projection capability is absent or
+ * conversation column. About five milestones around the reading position read
+ * clearly (the rest of the strip is faded and blurred), the viewport's turn
+ * sits on the center line, hovering a tick opens its card, and clicking jumps
+ * to that turn. Renders nothing while the projection capability is absent or
  * the conversation has no turns yet.
  */
 export const MilestoneRuler = function MilestoneRuler({
@@ -326,8 +327,13 @@ export const MilestoneRuler = function MilestoneRuler({
     // portals the rail there. Portaling keeps the session kit (useSession /
     // useProjection) available while freeing the geometry from the header row.
     if (host === null || milestones === undefined || ticks.length === 0) return null;
-    const window_ = windowTicks(ticks, activeTurn);
+    const strip = windowTicks(ticks, activeTurn);
     const now = Date.now();
+    // Slide the strip so the focus tick's center meets the viewport's center
+    // line. The whole column is translated, so a focus change animates as ONE
+    // continuous glide through the overscan ticks instead of a swap; see
+    // stripShift for why the strip's own middle is the wrong reference.
+    const shift = stripShift(strip.focusIndex);
     return createPortal(
         <div
             ref={railRef}
@@ -336,25 +342,36 @@ export const MilestoneRuler = function MilestoneRuler({
             aria-label={t('dock.aria')}
             data-left={railLeft === null ? undefined : String(railLeft)}
             data-column-left={railOrigin === null ? undefined : String(railOrigin)}
+            data-focus={strip.focusIndex}
             style={railLeft === null ? { visibility: 'hidden' } : { left: `${railLeft}px` }}
         >
-            <EdgeCue direction="older" shown={window_.hasOlder} />
-            <ol className="dms-ruler" role="list" onMouseLeave={() => setHoverTurn(null)}>
-                {window_.visible.map((tick) => (
-                    <Tick
-                        key={tick.turn}
-                        tick={tick}
-                        active={tick.turn === activeTurn}
-                        near={isNear(window_.visible, tick.turn, activeTurn)}
-                        hovered={tick.turn === hoverTurn}
-                        onHover={setHoverTurn}
-                        onJump={jumpTo}
-                        t={t}
-                        now={now}
-                    />
-                ))}
-            </ol>
-            <EdgeCue direction="newer" shown={window_.hasNewer} />
+            <EdgeCue direction="older" shown={strip.hasOlder} />
+            <div className="dms-viewport">
+                <ol
+                    className="dms-ruler"
+                    role="list"
+                    style={{ transform: `translateY(${-shift}px)` }}
+                    onMouseLeave={() => setHoverTurn(null)}
+                >
+                    {strip.strip.map((tick, index) => (
+                        <Tick
+                            key={tick.turn}
+                            tick={tick}
+                            // Distance from the focus drives graduated size, the
+                            // fade, and the blur — so exactly the readable band
+                            // around the focus reads as "shown".
+                            distance={Math.abs(index - strip.focusIndex)}
+                            active={tick.turn === activeTurn}
+                            hovered={tick.turn === hoverTurn}
+                            onHover={setHoverTurn}
+                            onJump={jumpTo}
+                            t={t}
+                            now={now}
+                        />
+                    ))}
+                </ol>
+            </div>
+            <EdgeCue direction="newer" shown={strip.hasNewer} />
         </div>,
         host,
     );
@@ -370,18 +387,6 @@ function EdgeCue({ direction, shown }: { direction: 'older' | 'newer'; shown: bo
     );
 }
 
-/** Distance (in tick positions) that still counts as "adjacent to active". */
-const NEAR_RADIUS = 2;
-
-/** Whether a tick sits within NEAR_RADIUS positions of the active turn (graduated hourglass profile). */
-function isNear(ticks: readonly TickModel[], turn: number, activeTurn: number | null): boolean {
-    if (activeTurn === null) return false;
-    const activeIndex = ticks.findIndex((tick) => tick.turn === activeTurn);
-    const index = ticks.findIndex((tick) => tick.turn === turn);
-    if (activeIndex < 0 || index < 0) return false;
-    return Math.abs(index - activeIndex) <= NEAR_RADIUS;
-}
-
 /** Resolve a turn's anchor row without selector interpolation (anchor keys are opaque). */
 function findAnchor(scrollport: HTMLElement, key: string): HTMLElement | null {
     for (const row of scrollport.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')) {
@@ -393,8 +398,9 @@ function findAnchor(scrollport: HTMLElement, key: string): HTMLElement | null {
 /** Props of one ruler tick (a plain function component, memoized by turn state below). */
 interface TickProps {
     tick: TickModel;
+    /** Positions from the focus tick within the strip; drives size, fade, and blur. */
+    distance: number;
     active: boolean;
-    near: boolean;
     hovered: boolean;
     onHover: (turn: number | null) => void;
     onJump: (turn: number) => void;
@@ -403,18 +409,18 @@ interface TickProps {
 }
 
 /** One ruler tick with its hover tooltip card. */
-function Tick({ tick, active, near, hovered, onHover, onJump, t, now }: TickProps) {
+function Tick({ tick, distance, active, hovered, onHover, onJump, t, now }: TickProps) {
     const reason = reasonLabel(t, tick);
     const time = relativeTime(tick.time, now);
     const summary = tick.summary ?? null;
     return (
-        <li className="dms-tickWrap">
+        <li className="dms-tickWrap" data-distance={distance > WINDOW_RADIUS ? 'out' : undefined}>
             <button
                 type="button"
                 role="listitem"
                 className="dms-tick"
+                data-distance={distance}
                 data-active={active ? '1' : undefined}
-                data-near={near && !active ? '1' : undefined}
                 data-running={tick.status === 'running' ? '1' : undefined}
                 aria-label={format(t('tick.aria'), { n: tick.turn })}
                 aria-current={active ? 'true' : undefined}

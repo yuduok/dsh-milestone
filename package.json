@@ -70,7 +70,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "verify": "node scripts/verify-bundle.mjs",
+    "check": "npm run typecheck && npm test && npm run build && npm run verify"
   },
   "license": "MIT"
 }

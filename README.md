@@ -15,7 +15,21 @@
    ────┼─        ⌄  （下方还有更新的里程）
 ```
 
-标尺**只显示 5 个里程**（当前轮 ±2），随阅读位置滑动；两侧的 `⌃`/`⌄` 提示还有被折叠的里程。
+标尺**只显示 5 个里程**（当前轮 ±2），随阅读位置滑动；两侧的 `⌃`/`⌄` 提示还有更多里程。
+
+## 滑动动画
+
+切换是**一次连续的滑动**，不是刻度原地替换：
+
+- 标尺实际渲染 9 个刻度（`STRIP_TICKS`：可读区 5 个 + 每侧 2 个过渡刻度 `STRIP_OVERSCAN`），
+  整列用一个 `translateY` 平移，让焦点刻度落在视口中心线；CSS `transition: transform .34s` 负责补间。
+- 多渲染的那 4 个刻度是**过渡材料**——没有它们，走一格就只能卸载/挂载节点，看起来是"顶替"。
+- 超出可读区的刻度按距离逐级**淡出 + 模糊**（`data-distance` 3/4/5/6 → opacity/blur 递增），
+  视口再有上下软遮罩（`mask-image`），所以视觉上始终只有 5 个左右清晰可读。
+- 居中量由纯函数 `stripShift(focusIndex)` 给出，且**以视口中心线为准**（不是以整条 strip 的中点为
+  准——strip 比视口高时，按后者居中会把焦点顶到视口边缘）。CSS 的刻度高度/间距由 locator.ts
+  的常量插值生成，避免 CSS 与 JS 对"一格走多远"产生分歧。
+- 尊重 `prefers-reduced-motion`：该偏好下关闭位移过渡与脉冲动画。
 
 ## 挂载位置与实现方式
 
@@ -85,17 +99,29 @@ cd ~/.dsh/profiles/web && pnpm install
 2. `curl -sf http://127.0.0.1:3080/plugins/dsh-milestone/client.js | head -c 200`
    —— 应 200 且以 `/*! dsh-milestone client bundle` 开头。
 3. 首页 `__DSH_BOOT__` 含 `dsh-milestone` 行。
-4. 浏览器：标尺出现在**对话区左侧**（垂直排列）；一次只显示 5 个刻度；滚动时高亮与窗口跟随滑动；
-   hover 出卡；点击跳转；超过 5 个里程时两端出现 `⌃`/`⌄`。
+4. 浏览器：标尺出现在**对话区左侧**（垂直排列）；清晰可读的刻度始终是 5 个；
+   滚动时焦点刻度**平滑滑到中心**（不是原地替换），边缘刻度淡出/模糊；hover 出卡；点击跳转；
+   里程多于可读区时两端出现 `⌃`/`⌄`。
 
 ## 开发
 
 ```bash
 npm install
-npm test          # 58 个纯函数单测（折叠状态机 + 可视轮判定 + 5 刻度窗口 + 相对时间）
-npm run typecheck
-npm run build     # esbuild → lib/client.js（__ModuleLoader__ CJS 工厂格式）
+npm run check     # 一条命令跑完全部：typecheck → 单测 → 构建 → 产物验证
 ```
+
+分步：
+
+```bash
+npm run typecheck  # tsc --noEmit
+npm test           # 68 个纯函数单测（折叠状态机 + 可视轮判定 + 滑动 strip + 居中量 + 相对时间）
+npm run build      # esbuild → lib/client.js（__ModuleLoader__ CJS 工厂格式）
+npm run verify     # 在干净 vm 上下文物化产物 + 跑 apply()，并断言注入的 CSS 几何已求值
+```
+
+`npm run verify` 覆盖 Node 冒烟**测不到**的三件事：① 工厂体在无 `module` 全局的浏览器式上下文
+能否物化（见下节 F1 坑）；② `apply()` 真的注册了槽位/字典/CSS；③ CSS 里的 `${...}` 模板是否
+已求值为具体几何（读产物**源码**只能看到未求值形态，必须取注入后的字符串）。
 
 改 client 半后**必须**重跑 `npm run build`：`dsh web` 只读 `lib/client.js` 产物，
 不编译 TS 源码；产物缺失会在启动审计时报 `MissingClientBundleError`。

@@ -94,39 +94,119 @@ export function computeActiveTurn(
 /** Dictionary key of one relative-time rendering. */
 export type RelativeTimeKey = 'time.now' | 'time.minutes' | 'time.hours' | 'time.days' | 'time.date';
 
-/** Milestones shown at once: the active turn plus this many on each side. */
+/** Milestones that read as "shown" around the focus: this many on each side. */
 export const WINDOW_RADIUS = 2;
-/** Total ticks in the sliding window (2 * {@link WINDOW_RADIUS} + 1). */
+/** Ticks that stay legible in the strip (the "5 or fewer" budget). */
 export const WINDOW_TICKS = WINDOW_RADIUS * 2 + 1;
+/**
+ * Extra ticks rendered beyond {@link WINDOW_RADIUS} on each side. They sit
+ * outside the readable band, faded and blurred by CSS, purely so the strip
+ * has material to move THROUGH while sliding — without them a one-turn step
+ * would have to unmount/remount ticks instead of gliding.
+ *
+ * 2 is the useful minimum: one step of travel needs a spare tick on each side,
+ * and the second spare carries the fade-out so the band's edge is never a hard
+ * cut. More overscan only adds invisible DOM (and lengthens the transform).
+ */
+export const STRIP_OVERSCAN = 2;
+/** Total ticks rendered in the strip. */
+export const STRIP_TICKS = WINDOW_TICKS + STRIP_OVERSCAN * 2;
 
-/** The sliding tick window plus whether milestones are hidden beyond each edge. */
-export interface TickWindow {
-    /** The ticks to render, in ascending turn order. */
-    visible: TickModel[];
-    /** True when milestones exist before the window's first tick. */
+/**
+ * The rail's sliding-strip model: a contiguous run of milestones plus the
+ * index (within that run) of the focus tick.
+ *
+ * The dock renders `strip` as one translated column and positions the focus
+ * tick at the rail's center, so a focus change becomes a smooth `transform`
+ * transition. `offset` is what the dock multiplies by the per-tick step to get
+ * that transform; `hasOlder`/`hasNewer` drive the edge cues.
+ *
+ * `offset` counts in TICKS, and the strip is sized so the focus can always sit
+ * at the center: with fewer milestones than the strip, every tick is rendered
+ * and the whole conversation simply centers.
+ */
+export interface TickStrip {
+    /** The contiguous ticks to render, in ascending turn order. */
+    strip: TickModel[];
+    /** Index of the focus tick within `strip` (0 when the strip is empty). */
+    focusIndex: number;
+    /** True when milestones exist before the strip's first tick. */
     hasOlder: boolean;
-    /** True when milestones exist after the window's last tick. */
+    /** True when milestones exist after the strip's last tick. */
     hasNewer: boolean;
+    /** True when nothing should render (no milestones). */
+    empty: boolean;
 }
 
 /**
- * The sliding window around the reading position: the active tick plus
- * {@link WINDOW_RADIUS} neighbours on each side, clamped at either end of the
- * conversation. With no active turn yet — or one outside the loaded ticks —
- * the window anchors on the newest milestone.
+ * Resolve the focus tick's index in `ticks`: the active turn when it is
+ * present, otherwise the newest milestone (a fresh session is pinned to the
+ * bottom, and an active turn outside the loaded window has no better answer).
+ * @param ticks - all milestones in ascending turn order.
+ * @param activeTurn - the viewport's turn, or null before the first measure.
+ * @returns the focus index, or -1 when there are no ticks.
+ */
+export function focusIndexOf(ticks: readonly TickModel[], activeTurn: number | null): number {
+    if (ticks.length === 0) return -1;
+    const found = activeTurn === null ? -1 : ticks.findIndex((tick) => tick.turn === activeTurn);
+    return found < 0 ? ticks.length - 1 : found;
+}
+
+/**
+ * Build the sliding strip around the reading position. The focus stays as
+ * close to the strip's center as the conversation's ends allow, so that when
+ * the reader scrolls the motion is a pure glide rather than an edge-anchored
+ * jump; near either end the strip clamps and the focus index moves toward the
+ * edge instead.
  *
  * Pure, so the dock only renders the result and every branch pins in tests.
  * @param ticks - all milestones in ascending turn order.
  * @param activeTurn - the viewport's turn, or null before the first measure.
- * @returns the visible slice plus the hidden-beyond-each-edge flags.
+ * @returns the strip plus the focus index and the hidden-beyond-each-edge flags.
  */
-export function windowTicks(ticks: readonly TickModel[], activeTurn: number | null): TickWindow {
-    if (ticks.length <= WINDOW_TICKS) return { visible: [...ticks], hasOlder: false, hasNewer: false };
-    const found = activeTurn === null ? -1 : ticks.findIndex((tick) => tick.turn === activeTurn);
-    const anchor = found < 0 ? ticks.length - 1 : found;
-    const start = Math.max(0, Math.min(anchor - WINDOW_RADIUS, ticks.length - WINDOW_TICKS));
-    const end = Math.min(ticks.length, start + WINDOW_TICKS);
-    return { visible: ticks.slice(start, end), hasOlder: start > 0, hasNewer: end < ticks.length };
+export function windowTicks(ticks: readonly TickModel[], activeTurn: number | null): TickStrip {
+    const focus = focusIndexOf(ticks, activeTurn);
+    if (focus < 0) return { strip: [], focusIndex: 0, hasOlder: false, hasNewer: false, empty: true };
+    if (ticks.length <= STRIP_TICKS) {
+        return { strip: [...ticks], focusIndex: focus, hasOlder: false, hasNewer: false, empty: false };
+    }
+    // Keep the focus centered where possible; clamp at both ends.
+    const start = Math.max(0, Math.min(focus - Math.floor(STRIP_TICKS / 2), ticks.length - STRIP_TICKS));
+    const end = start + STRIP_TICKS;
+    return {
+        strip: ticks.slice(start, end),
+        focusIndex: focus - start,
+        hasOlder: start > 0,
+        hasNewer: end < ticks.length,
+        empty: false,
+    };
+}
+
+/** Vertical advance (height + gap) of one tick in the rail, px. */
+export const TICK_ADVANCE = 20;
+/** Tick mark height, px (the box the tick column advances by). */
+export const TICK_HEIGHT = 14;
+/**
+ * Height of the rail's window onto the strip, px: exactly
+ * {@link WINDOW_TICKS} rows, the last without a trailing gap.
+ */
+export const VIEWPORT_HEIGHT = WINDOW_TICKS * TICK_ADVANCE - (TICK_ADVANCE - TICK_HEIGHT);
+
+/**
+ * The strip's `translateY` that puts the focus tick's CENTER on the viewport's
+ * center line.
+ *
+ * Derived from the geometry rather than from the strip's own middle: the
+ * viewport is a fixed-height window, so what must be centered is the focus
+ * tick within the WINDOW, and the strip's middle is only incidental. (Centering
+ * the focus within the strip instead lands it near the viewport's edge whenever
+ * the strip is taller than the window.)
+ * @param focusIndex - the focus tick's index within the strip.
+ * @returns the translation in px; the caller applies `translateY(-shift)`.
+ */
+export function stripShift(focusIndex: number): number {
+    const focusCenter = focusIndex * TICK_ADVANCE + TICK_HEIGHT / 2;
+    return focusCenter - VIEWPORT_HEIGHT / 2;
 }
 
 /** A relative-time rendering: a dictionary key plus its template params. */

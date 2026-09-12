@@ -12,25 +12,44 @@
  * measurement of the conversation column; `top`/`bottom` pin it to the
  * viewport with a comfortable inset so it never collides with the header or
  * composer.
+ *
+ * The tick metrics are interpolated from locator.ts so the CSS and the JS
+ * transform can never disagree about how far one tick advances.
  */
+import { TICK_ADVANCE, TICK_HEIGHT, VIEWPORT_HEIGHT } from './locator.ts';
+
+const TICK_GAP = TICK_ADVANCE - TICK_HEIGHT;
 
 const css = `
 .dms-rail{position:absolute;top:96px;bottom:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:26px;pointer-events:auto;z-index:1}
-.dms-ruler{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:100%;margin:0;padding:0;list-style:none;border:none;background:transparent}
+/* Fixed-height window onto the strip: exactly the readable band is tall enough
+   to show, and the soft mask dissolves the overscan ticks into the background
+   instead of cutting them off at a hard edge. */
+.dms-viewport{position:relative;display:flex;align-items:center;justify-content:center;width:100%;height:${VIEWPORT_HEIGHT}px;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 20%,#000 80%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 20%,#000 80%,transparent 100%)}
+.dms-ruler{display:flex;flex-direction:column;align-items:center;width:100%;margin:0;padding:0;list-style:none;border:none;background:transparent;will-change:transform;transition:transform .34s cubic-bezier(.22,.61,.36,1)}
+@media (prefers-reduced-motion:reduce){.dms-ruler{transition:none}}
 .dms-tickWrap{display:flex;align-items:center;justify-content:center;width:100%;margin:0;padding:0;list-style:none}
-.dms-tick{position:relative;display:flex;align-items:center;justify-content:flex-end;width:100%;height:14px;padding:0;border:none;background:transparent;cursor:pointer}
+.dms-tick{position:relative;display:flex;align-items:center;justify-content:flex-end;width:100%;height:${TICK_HEIGHT}px;margin:0 0 ${TICK_GAP}px;padding:0;border:none;background:transparent;cursor:pointer}
+.dms-tickWrap:last-child .dms-tick{margin-bottom:0}
 .dms-tick:focus-visible{outline:2px solid var(--dsw-alias-label-tertiary);outline-offset:-2px;border-radius:2px}
-.dms-line{display:block;width:10px;height:2px;border-radius:1px;background:var(--dsw-alias-label-tertiary);opacity:.42;transition:width .15s ease,opacity .15s ease,background .15s ease}
-.dms-tick:hover .dms-line{opacity:.85;background:var(--dsw-alias-label-secondary)}
-.dms-tick[data-near="1"] .dms-line{width:16px;opacity:.68;background:var(--dsw-alias-label-secondary)}
-.dms-tick[data-active="1"] .dms-line{width:24px;height:3px;opacity:1;background:var(--dsw-alias-label-primary)}
-.dms-dot{position:absolute;right:-2px;top:50%;width:3px;height:3px;margin-top:-1.5px;border-radius:50%;background:var(--dsw-alias-label-primary);opacity:0;transition:opacity .15s ease}
-.dms-tick[data-active="1"] .dms-dot{opacity:1}
+.dms-line{display:block;width:10px;height:2px;border-radius:1px;background:var(--dsw-alias-label-tertiary);opacity:.42;transition:width .2s ease,height .2s ease,opacity .2s ease,background .2s ease,filter .2s ease}
+/* Graduated by distance from the focus tick: the band inside WINDOW_RADIUS stays
+   crisp and readable; the overscan ticks beyond it fade and blur out, so only
+   ~5 milestones ever read as "shown". Distances are capped at
+   WINDOW_RADIUS + STRIP_OVERSCAN; anything further is never rendered. */
+.dms-tick[data-distance="1"] .dms-line{width:15px;opacity:.6;background:var(--dsw-alias-label-secondary)}
+.dms-tick[data-distance="2"] .dms-line{width:20px;opacity:.82;background:var(--dsw-alias-label-secondary)}
+.dms-tick[data-distance="0"] .dms-line{width:26px;height:3px;opacity:1;background:var(--dsw-alias-label-primary)}
+.dms-tick[data-distance="3"] .dms-line{width:8px;opacity:.26;filter:blur(.8px)}
+.dms-tick[data-distance="4"] .dms-line{width:5px;opacity:.12;filter:blur(1.6px)}
+.dms-tick:hover .dms-line{opacity:.95;background:var(--dsw-alias-label-secondary);filter:none}
+.dms-dot{position:absolute;right:-2px;top:50%;width:3px;height:3px;margin-top:-1.5px;border-radius:50%;background:var(--dsw-alias-label-primary);opacity:0;transition:opacity .2s ease}
+.dms-tick[data-distance="0"] .dms-dot{opacity:1}
 .dms-tick[data-running="1"] .dms-line{animation:dms-pulse 1.6s ease-in-out infinite}
-.dms-tick[data-running="1"]:hover .dms-line,.dms-tick[data-running="1"][data-active="1"] .dms-line{animation:none}
+.dms-tick[data-running="1"]:hover .dms-line,.dms-tick[data-running="1"][data-distance="0"] .dms-line{animation:none}
 @keyframes dms-pulse{0%,100%{opacity:.35}50%{opacity:.9}}
 @media (prefers-reduced-motion:reduce){.dms-tick[data-running="1"] .dms-line{animation:none}}
-.dms-cue,.dms-cueSpacer{display:block;height:10px;line-height:8px;font-size:10px;color:var(--dsw-alias-label-caption);opacity:.7;user-select:none}
+.dms-cue,.dms-cueSpacer{display:block;height:10px;line-height:8px;font-size:10px;color:var(--dsw-alias-label-caption);opacity:.7;user-select:none;transition:opacity .2s ease}
 .dms-cueSpacer{visibility:hidden}
 .dms-tip{position:absolute;left:calc(100% + 10px);top:50%;transform:translateY(-50%);z-index:20;box-sizing:border-box;width:260px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-specific-tip);box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px;pointer-events:none;text-align:left;white-space:normal}
 .dms-tip::after{content:"";position:absolute;right:100%;top:50%;margin-top:-5px;border:5px solid transparent;border-right-color:var(--dsw-alias-border-l1)}
