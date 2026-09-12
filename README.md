@@ -54,7 +54,7 @@ client 半 src/client.tsx → 注册于 header.actions，portal 到 shell.overla
 方式 A —— dsh CLI：
 
 ```bash
-dsh plugin --profile web add /Users/yudu/Documents/dsh-Milestone/dsh-milestone
+dsh plugin --profile web add /Users/yudu/Documents/dsh-Milestone
 dsh --profile web --dump-config | grep -A3 dsh-milestone   # 确认合成层出现该行
 ```
 
@@ -62,7 +62,7 @@ dsh --profile web --dump-config | grep -A3 dsh-milestone   # 确认合成层出�
 
 ```jsonc
 // ~/.dsh/profiles/web/package.json → dependencies
-"dsh-milestone": "link:/Users/yudu/Documents/dsh-Milestone/dsh-milestone"
+"dsh-milestone": "link:/Users/yudu/Documents/dsh-Milestone"
 ```
 
 ```yaml
