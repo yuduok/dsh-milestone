@@ -1,5 +1,25 @@
 # dsh-milestone
 
+> ## ⚠️ 版本现状（2026-10-01 实测核实，代码未改）
+>
+> **本插件想做的"会话侧边轮次导航栏"已经由 dsh 官方内置，且本插件在 dsh `0.2.0-rc.2` 上不可用：**
+>
+> 1. **上游已内置**：`0.2.0-rc.2` 的 `@deepseek-ai/dsh-client-ui-chat` 自带 `TurnNavigator`
+>    （会话区右缘的固定节距轮次栏：悬停出预览卡、点击跳转、未加载轮次先翻页），
+>    数据来自 `ChatSnapshot.navigation.items()` + host 侧 `@deepseek-ai/dsh-session-turn-outline`
+>    的 `turnOutline` 投影。本插件 0.1.1-rc.2 时期的左缘"里程标尺"与之重复。
+> 2. **本插件装不上**：`dsh plugin add` 被版本闸门拒绝
+>    （`peerDependencies {"@deepseek-ai/dsh-client-runtime":"^0.1.1-rc.2", …}` 不覆盖 `0.2.0-rc.2`）。
+> 3. **强装也跑不了**：`0.2.0-rc.2` 删除了整包 `@deepseek-ai/dsh-client-runtime`，`useSession`
+>    不再返回含 `chat` 的 `ConversationSnapshot` → 渲染期
+>    `slot entry crashed in 'conversation.session.header.actions': TypeError: … reading 'timeline'`。
+>
+> 因此**按约定不改动本插件**（保留为 ≤ `0.1.1-rc.2` 环境的实现）。适配路径、逐字规则与复现步骤见
+> 技能 `dsh-plugin-dev` 的 `references/version-adaptation.md`，以及 Mnemon 文档
+> 「dsh-milestone 与 dsh 0.2.0-rc.2：适配核实与「上游已内置会话轮次导航栏」结论」。
+> `npm run dsh:live -- status|link` 可把 `node_modules/@deepseek-ai/*` 指向**本机实际在跑的** dsh
+> 后再做类型检查（npm 上的 `@deepseek-ai/*` 只发布到 `0.1.1-rc.2`，落后于 runtime）。
+
 给 dsh web 会话加"对话里程"导航：每一轮对话（turn）是一个里程，在**对话区左侧**渲染一条
 **垂直刻度标尺**，**当前浏览位置对应的里程高亮**，**悬停显示该轮简略信息**，**点击跳转到该轮**。
 

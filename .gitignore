@@ -4,6 +4,9 @@ node_modules/
 # AgentTeams runtime state (local coordination scratch, not project source)
 .agent-teams/
 
+# Local scratch: probe scripts, headless-browser screenshots, subagent reports
+.tmp/
+
 # macOS
 .DS_Store
 
